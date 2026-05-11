@@ -434,7 +434,7 @@ async function fetchArticles() {
 
   try {
     var data = await callAPI({
-      model: 'claude-sonnet-4-5-20250514',
+      model: 'claude-sonnet-4-6-20251001',
       max_tokens: 1000,
       tools: [{ type: 'web_search_20260209', name: 'web_search' }],
       system: sys,
@@ -583,7 +583,7 @@ async function driveCall(instruction, userMsg) {
   var res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST', headers: headers,
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5-20250514', max_tokens: 1000,
+      model: 'claude-sonnet-4-6-20251001', max_tokens: 1000,
       system: instruction,
       messages: [{ role: 'user', content: userMsg }],
       mcp_servers: [{ type: 'url', url: DRIVE_MCP, name: 'gdrive' }]
