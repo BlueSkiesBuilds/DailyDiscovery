@@ -339,6 +339,7 @@ async function callAPI(bodyObj) {
   try {
     var res = await fetch('https://api.anthropic.com/v1/messages', { method:'POST', headers:headers, body:JSON.stringify(bodyObj), signal:controller.signal });
     raw = await res.text();
+    if (res.status === 429) throw new Error('Rate limit hit — web search uses a lot of tokens. Wait a minute then try again, or add credit at console.anthropic.com to raise your limit.');
     if (!res.ok) throw new Error('API ' + res.status + ': ' + raw.slice(0,300));
     return JSON.parse(raw);
   } catch(e) {
@@ -410,7 +411,7 @@ async function fetchArticles() {
   var boosts = Object.entries(profile.domainBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var catBoosts = Object.entries(profile.categoryBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var mediaBoosts = Object.entries(profile.mediaTypeBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
-  var feedback = (profile.scoreHistory||[]).slice(-12).map(function(h){return '"'+h.title+'" ['+( h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
+  var feedback = (profile.scoreHistory||[]).slice(-6).map(function(h){return '"'+h.title+'" ['+( h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
 
   var sys = [
     'You are a personalised discovery engine. Find 5 real current high-quality pieces of content matching this user profile.',
