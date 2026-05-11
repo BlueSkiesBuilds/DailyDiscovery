@@ -116,7 +116,7 @@ main{max-width:820px;margin:0 auto;padding:1rem}
   <div id="tab-feed">
     <div class="splash" id="splash-idle">
       <p class="splash-h">Your personalised briefing awaits.</p>
-      <p class="splash-sub" id="splash-sources-count">Five curated picks across your sources.</p>
+      <p class="splash-sub" id="splash-sources-count">Three curated picks across your sources.</p>
       <button class="btn-primary" onclick="fetchArticles()">Fetch Today's Picks</button>
     </div>
     <div class="splash hidden" id="splash-loading">
@@ -414,7 +414,7 @@ async function fetchArticles() {
   var feedback = (profile.scoreHistory||[]).slice(-6).map(function(h){return '"'+h.title+'" ['+( h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
 
   var sys = [
-    'You are a personalised discovery engine. Find 5 real current high-quality pieces of content matching this user profile.',
+    'You are a personalised discovery engine. Find 3 real current high-quality pieces of content matching this user profile.',
     'RULES:',
     '- Use web search. REAL URLs only. Never invent content.',
     '- ANY medium valid: articles, YouTube videos, podcasts, audio docs, radio, essays. Actively seek non-text.',
@@ -438,37 +438,48 @@ async function fetchArticles() {
   userParts.push('Today: ' + new Date().toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
   userParts.push('Search now. Return only the JSON object.');
 
-  try {
-    var data = await callAPI({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
-      tools: [{ type: 'web_search_20260209', name: 'web_search' }],
-      system: sys,
-      messages: [{ role: 'user', content: userParts.join('\n') }]
-    });
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      var data = await callAPI({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        tools: [{ type: 'web_search_20260209', name: 'web_search' }],
+        system: sys,
+        messages: [{ role: 'user', content: userParts.join('\n') }]
+      });
 
-    var result = extractJSON(data);
-    var items = result.items || [];
-    var disc  = result.discoveredDomain;
+      var result = extractJSON(data);
+      var items = result.items || [];
+      var disc  = result.discoveredDomain;
 
-    profile.totalSearches = (profile.totalSearches||0) + 1;
-    if (disc) {
-      profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
-      if (profile.sources.indexOf(disc) === -1) profile.sources.push(disc);
-      var bt = document.getElementById('banner-text');
-      bt.textContent = 'New source added: ' + disc + (result.discoveredDomainReason ? ' - ' + result.discoveredDomainReason : '');
-      document.getElementById('domain-banner').style.display = 'flex';
+      profile.totalSearches = (profile.totalSearches||0) + 1;
+      if (disc) {
+        profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
+        if (profile.sources.indexOf(disc) === -1) profile.sources.push(disc);
+        var bt = document.getElementById('banner-text');
+        bt.textContent = 'New source added: ' + disc + (result.discoveredDomainReason ? ' - ' + result.discoveredDomainReason : '');
+        document.getElementById('domain-banner').style.display = 'flex';
+      }
+
+      currentArticles = items;
+      renderArticles();
+      setAppStatus('ready');
+      profileSave();
+      break;
+    } catch(e) {
+      if (attempt === 0 && e.message && e.message.indexOf('Rate limit') === 0) {
+        for (var i = 60; i > 0; i--) {
+          document.querySelector('.load-txt').textContent = 'Rate limit hit — retrying in ' + i + 's…';
+          await new Promise(function(r) { setTimeout(r, 1000); });
+        }
+        document.querySelector('.load-txt').textContent = 'Searching across articles, video and audio…';
+        continue;
+      }
+      document.getElementById('error-msg').textContent = e.message;
+      setAppStatus('error');
+      break;
     }
-
-    currentArticles = items;
-    renderArticles();
-    setAppStatus('ready');
-    profileSave();
-  } catch(e) {
-    document.getElementById('error-msg').textContent = e.message;
-    setAppStatus('error');
   }
-}
 
 // ---- Render articles ----
 function renderArticles() {
