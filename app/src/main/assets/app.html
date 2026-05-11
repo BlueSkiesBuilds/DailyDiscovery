@@ -584,12 +584,13 @@ function handleScore(idx, optIdx) {
 }
 
 function updateFooterNote() {
-  var count  = Object.keys(currentScores).length;
-  var total  = currentArticles.length;
+  var loaded = currentArticles.length;
+  var scored = Object.keys(currentScores).length;
   var note   = document.getElementById('footer-note');
   var btn    = document.getElementById('save-ratings-btn');
-  note.textContent = count + '/' + total + ' rated' + (count === total ? ' - ready to save!' : '');
-  btn.disabled = count === 0;
+  var loadedStr = loaded < 3 ? loaded + ' of 3 loaded  ·  ' : '';
+  note.textContent = loadedStr + scored + '/' + loaded + ' rated' + (loaded > 0 && scored === loaded ? ' — ready to save!' : '');
+  btn.disabled = scored === 0;
 }
 
 // ---- Save feedback ----

@@ -1,6 +1,8 @@
 package com.blueskiesbuilds.dailydiscovery;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -41,9 +43,9 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // Open external links in the WebView (so article links work)
+                // Open links in system browser so the app page is never navigated away from
                 if (url.startsWith("http://") || url.startsWith("https://")) {
-                    view.loadUrl(url);
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
                     return true;
                 }
                 return false;
