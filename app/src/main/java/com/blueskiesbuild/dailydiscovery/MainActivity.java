@@ -1,4 +1,4 @@
-package com.blueskiesbuild.dailydiscovery;
+package com.blueskiesbuilds.dailydiscovery;
 
 import android.app.Activity;
 import android.os.Bundle;

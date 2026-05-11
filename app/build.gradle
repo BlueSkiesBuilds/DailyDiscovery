@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.blueskiesbuild.dailydiscovery'
+    namespace 'com.blueskiesbuilds.dailydiscovery'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.blueskiesbuild.dailydiscovery"
+        applicationId "com.blueskiesbuilds.dailydiscovery"
         minSdk 24
         targetSdk 34
         versionCode 1
