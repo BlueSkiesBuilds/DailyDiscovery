@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(true);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);  // no caching
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setAllowUniversalAccessFromFileURLs(true); // allow fetch() to external HTTPS from file:// origin
         settings.setUserAgentString(
             "DailyDiscovery/1.0 Android/" + android.os.Build.VERSION.RELEASE
         );
