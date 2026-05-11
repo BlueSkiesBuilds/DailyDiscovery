@@ -19,33 +19,12 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Install SDK components
+      - name: Get Gradle wrapper jar
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x ./gradlew
-
-      - name: Download Gradle wrapper jar
-        run: |
+          curl -L -o /tmp/gradle-bin.zip \
+            https://services.gradle.org/distributions/gradle-8.4-bin.zip
           mkdir -p gradle/wrapper
-          curl -L -o gradle/wrapper/gradle-wrapper.jar \
-            https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar
-
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: DailyDiscovery-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          JAR=$(unzip -l /tmp/gradle-bin.zip | grep 'gradle-wrapper.jar' | awk '{print $4}')
+          unzip -p /tmp/gradle-bin.zip "$JAR" > gradle/wrapper/gradle-wrapper.jar
+          python3 -c "
+          data = open('gradle/wrapper/gradle-wrapper.jar
