@@ -19,12 +19,27 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Get Gradle wrapper jar
+      - name: Install Gradle 8.4
         run: |
-          curl -L -o /tmp/gradle-bin.zip \
+          curl -L -o /tmp/gradle-8.4-bin.zip \
             https://services.gradle.org/distributions/gradle-8.4-bin.zip
-          mkdir -p gradle/wrapper
-          JAR=$(unzip -l /tmp/gradle-bin.zip | grep 'gradle-wrapper.jar' | awk '{print $4}')
-          unzip -p /tmp/gradle-bin.zip "$JAR" > gradle/wrapper/gradle-wrapper.jar
-          python3 -c "
-          data = open('gradle/wrapper/gradle-wrapper.jar
+          unzip -d /opt/gradle /tmp/gradle-8.4-bin.zip
+          echo "/opt/gradle/gradle-8.4/bin" >> $GITHUB_PATH
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.4
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DailyDiscovery-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
