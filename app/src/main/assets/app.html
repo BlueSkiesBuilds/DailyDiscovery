@@ -334,14 +334,19 @@ async function callAPI(bodyObj) {
   if (!key) throw new Error('No API key set. Please add your Anthropic API key in Settings.');
   var headers = { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' };
   var raw = '';
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, 120000);
   try {
-    var res = await fetch('https://api.anthropic.com/v1/messages', { method:'POST', headers:headers, body:JSON.stringify(bodyObj) });
+    var res = await fetch('https://api.anthropic.com/v1/messages', { method:'POST', headers:headers, body:JSON.stringify(bodyObj), signal:controller.signal });
     raw = await res.text();
     if (!res.ok) throw new Error('API ' + res.status + ': ' + raw.slice(0,300));
     return JSON.parse(raw);
   } catch(e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out after 2 minutes — try again.');
     if (e.message && e.message.indexOf('API ') === 0) throw e;
     throw new Error('Fetch error: ' + e.message + ' | ' + raw.slice(0,120));
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -435,7 +440,7 @@ async function fetchArticles() {
   try {
     var data = await callAPI({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      max_tokens: 2000,
       tools: [{ type: 'web_search_20260209', name: 'web_search' }],
       system: sys,
       messages: [{ role: 'user', content: userParts.join('\n') }]
@@ -580,18 +585,27 @@ async function driveCall(instruction, userMsg) {
   var key = apiKeyLoad();
   if (!key) throw new Error('No API key set. Please add your Anthropic API key in Settings.');
   var headers = { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' };
-  var res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST', headers: headers,
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6', max_tokens: 1000,
-      system: instruction,
-      messages: [{ role: 'user', content: userMsg }],
-      mcp_servers: [{ type: 'url', url: DRIVE_MCP, name: 'gdrive' }]
-    })
-  });
-  var raw = await res.text();
-  if (!res.ok) throw new Error('Drive API ' + res.status + ': ' + raw.slice(0,200));
-  return JSON.parse(raw);
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, 120000);
+  try {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST', headers: headers, signal: controller.signal,
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6', max_tokens: 1000,
+        system: instruction,
+        messages: [{ role: 'user', content: userMsg }],
+        mcp_servers: [{ type: 'url', url: DRIVE_MCP, name: 'gdrive' }]
+      })
+    });
+    var raw = await res.text();
+    if (!res.ok) throw new Error('Drive API ' + res.status + ': ' + raw.slice(0,200));
+    return JSON.parse(raw);
+  } catch(e) {
+    if (e.name === 'AbortError') throw new Error('Drive request timed out after 2 minutes — try again.');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function driveRead() {
