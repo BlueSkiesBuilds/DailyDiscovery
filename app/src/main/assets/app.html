@@ -335,7 +335,7 @@ async function callAPI(bodyObj) {
   var headers = { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' };
   var raw = '';
   var controller = new AbortController();
-  var timer = setTimeout(function() { controller.abort(); }, 120000);
+  var timer = setTimeout(function() { controller.abort(); }, 180000);
   try {
     var res = await fetch('https://api.anthropic.com/v1/messages', { method:'POST', headers:headers, body:JSON.stringify(bodyObj), signal:controller.signal });
     raw = await res.text();
@@ -343,7 +343,7 @@ async function callAPI(bodyObj) {
     if (!res.ok) throw new Error('API ' + res.status + ': ' + raw.slice(0,300));
     return JSON.parse(raw);
   } catch(e) {
-    if (e.name === 'AbortError') throw new Error('Request timed out after 2 minutes — try again.');
+    if (e.name === 'AbortError') throw new Error('Request timed out after 3 minutes — try again.');
     if (e.message && e.message.indexOf('API ') === 0) throw e;
     throw new Error('Fetch error: ' + e.message + ' | ' + raw.slice(0,120));
   } finally {
@@ -439,6 +439,9 @@ async function fetchArticles() {
   userParts.push('Search now. Return only the JSON object.');
 
   for (var attempt = 0; attempt < 2; attempt++) {
+    var stillSearching = setTimeout(function() {
+      document.querySelector('.load-txt').textContent = 'Still searching — web search can be slow, nearly there…';
+    }, 90000);
     try {
       var data = await callAPI({
         model: 'claude-sonnet-4-6',
@@ -461,12 +464,14 @@ async function fetchArticles() {
         document.getElementById('domain-banner').style.display = 'flex';
       }
 
+      clearTimeout(stillSearching);
       currentArticles = items;
       renderArticles();
       setAppStatus('ready');
       profileSave();
       break;
     } catch(e) {
+      clearTimeout(stillSearching);
       if (attempt === 0 && e.message && e.message.indexOf('Rate limit') === 0) {
         for (var i = 60; i > 0; i--) {
           document.querySelector('.load-txt').textContent = 'Rate limit hit — retrying in ' + i + 's…';
