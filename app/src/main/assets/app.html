@@ -400,119 +400,166 @@ function extractJSON(apiResponse) {
   throw new Error('No valid JSON found. Response preview: ' + fullText.slice(0, 300));
 }
 
-// ---- Fetch articles ----
+// ---- Render helpers ----
+function appendArticleCard(art, idx) {
+  hideFetchingMore();
+  var container = document.getElementById('articles-container');
+  var div = document.createElement('div');
+  div.className = 'card';
+  div.id = 'card-' + idx;
+  var mtype = art.mediaType || 'article';
+  div.innerHTML =
+    '<div class="card-meta">' +
+      '<div class="card-meta-left">' +
+        '<span class="media-tag">' + mtype + '</span>' +
+        '<span class="card-cat">' + (art.category||'') + '</span>' +
+      '</div>' +
+      '<span class="card-dur">' + (art.estimatedDuration||'') + '</span>' +
+    '</div>' +
+    '<h2 class="card-title"><a href="' + art.url + '" target="_blank">' + art.title + '</a></h2>' +
+    '<p class="card-src">' + (art.source||'') + ' / ' + (art.domain||'') + '</p>' +
+    '<p class="card-sum">' + (art.summary||'') + '</p>' +
+    '<p class="card-why">' + (art.whyRecommended||'') + '</p>' +
+    '<div class="score-row" id="scores-' + idx + '">' + renderScoreBtns(idx) + '</div>' +
+    '<p class="scored-ok hidden" id="scored-' + idx + '"></p>';
+  container.appendChild(div);
+  updateFooterNote();
+}
+
+function showFetchingMore(msg) {
+  var container = document.getElementById('articles-container');
+  var el = document.getElementById('fetch-more-indicator');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fetch-more-indicator';
+    el.style.cssText = 'border-top:1px solid #c8c0a8;padding:1.2rem 0;text-align:center';
+    container.appendChild(el);
+  }
+  el.innerHTML = '<div class="dots"><span class="dot" style="animation-delay:0s"></span><span class="dot" style="animation-delay:0.2s"></span><span class="dot" style="animation-delay:0.4s"></span></div><p class="load-txt" style="margin-top:0.5rem">' + msg + '</p>';
+}
+
+function hideFetchingMore() {
+  var el = document.getElementById('fetch-more-indicator');
+  if (el) el.remove();
+}
+
+function setLoadingMsg(msg) {
+  if (!document.getElementById('splash-loading').classList.contains('hidden')) {
+    document.querySelector('#splash-loading .load-txt').textContent = msg;
+  } else {
+    showFetchingMore(msg);
+  }
+}
+
+// ---- Fetch articles (one at a time) ----
 async function fetchArticles() {
   setAppStatus('loading');
   currentArticles = []; currentScores = {}; feedbackSaved = false;
   document.getElementById('domain-banner').style.display = 'none';
   document.getElementById('saved-msg').classList.add('hidden');
   document.getElementById('footer-rate').classList.remove('hidden');
+  document.getElementById('articles-container').innerHTML = '';
 
   var boosts = Object.entries(profile.domainBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var catBoosts = Object.entries(profile.categoryBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var mediaBoosts = Object.entries(profile.mediaTypeBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
-  var feedback = (profile.scoreHistory||[]).slice(-6).map(function(h){return '"'+h.title+'" ['+( h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
+  var feedback = (profile.scoreHistory||[]).slice(-6).map(function(h){return '"'+h.title+'" ['+(h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
 
-  var sys = [
-    'You are a personalised discovery engine. Find 3 real current high-quality pieces of content matching this user profile.',
-    'RULES:',
-    '- Use web search. REAL URLs only. Never invent content.',
-    '- ANY medium valid: articles, YouTube videos, podcasts, audio docs, radio, essays. Actively seek non-text.',
-    '- Prefer last 14 days. Never older than 60 days.',
-    '- Vary media types. Do not repeat same domain twice.',
-    '- Identify ONE new quality domain not in user source list.',
-    'Return ONLY valid JSON, no fences:',
-    '{"items":[{"title":"...","source":"...","domain":"...","url":"...","summary":"...","category":"...","mediaType":"article or video or podcast or audio","estimatedDuration":"...","whyRecommended":"..."}],"discoveredDomain":"...","discoveredDomainReason":"..."}'
-  ].join('\n');
-
-  var userParts = [
+  var userContext = [
     'Categories: ' + profile.categories.join(', '),
-    'Sources: ' + profile.sources.join(', '),
     'Already discovered (skip): ' + ((profile.discoveredDomains||[]).join(', ')||'none'),
-  ];
-  if (boosts)      userParts.push('Domain scores: ' + boosts);
-  if (catBoosts)   userParts.push('Category scores: ' + catBoosts);
-  if (mediaBoosts) userParts.push('Media scores: ' + mediaBoosts);
-  userParts.push(feedback ? 'Recent ratings:\n'+feedback : 'First run - no ratings yet.');
-  userParts.push('Fetches so far: ' + (profile.totalSearches||0));
-  userParts.push('Today: ' + new Date().toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'}));
-  userParts.push('Search now. Return only the JSON object.');
+    boosts      ? 'Domain scores: '   + boosts      : '',
+    catBoosts   ? 'Category scores: ' + catBoosts   : '',
+    mediaBoosts ? 'Media scores: '    + mediaBoosts : '',
+    feedback ? 'Recent ratings:\n' + feedback : 'First run - no ratings yet.',
+    'Fetches so far: ' + (profile.totalSearches||0),
+    'Today: ' + new Date().toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'})
+  ].filter(Boolean).join('\n');
 
-  for (var attempt = 0; attempt < 2; attempt++) {
-    var stillSearching = setTimeout(function() {
-      document.querySelector('.load-txt').textContent = 'Still searching — web search can be slow, nearly there…';
-    }, 90000);
-    try {
-      var data = await callAPI({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        tools: [{ type: 'web_search_20260209', name: 'web_search' }],
-        system: sys,
-        messages: [{ role: 'user', content: userParts.join('\n') }]
-      });
+  var TARGET = 3;
+  var usedDomains = (profile.sources||[]).slice();
+  var gotAny = false;
 
-      var result = extractJSON(data);
-      var items = result.items || [];
-      var disc  = result.discoveredDomain;
+  for (var i = 0; i < TARGET; i++) {
+    var pickLabel = 'pick ' + (i + 1) + ' of ' + TARGET;
+    setLoadingMsg('Searching for ' + pickLabel + '…');
 
-      profile.totalSearches = (profile.totalSearches||0) + 1;
-      if (disc) {
-        profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
-        if (profile.sources.indexOf(disc) === -1) profile.sources.push(disc);
-        var bt = document.getElementById('banner-text');
-        bt.textContent = 'New source added: ' + disc + (result.discoveredDomainReason ? ' - ' + result.discoveredDomainReason : '');
-        document.getElementById('domain-banner').style.display = 'flex';
-      }
+    var sys = [
+      'You are a personalised discovery engine. Find exactly 1 real current high-quality piece of content.',
+      'RULES:',
+      '- Use web search. REAL URLs only. Never invent content.',
+      '- ANY medium: articles, YouTube videos, podcasts, audio docs, radio, essays.',
+      '- Prefer last 14 days. Never older than 60 days.',
+      '- Do NOT use any of these domains: ' + usedDomains.join(', '),
+      '- Optionally identify ONE new quality domain not currently in the source pool.',
+      'Return ONLY valid JSON:',
+      '{"items":[{"title":"...","source":"...","domain":"...","url":"...","summary":"...","category":"...","mediaType":"article or video or podcast or audio","estimatedDuration":"...","whyRecommended":"..."}],"discoveredDomain":"...or null","discoveredDomainReason":"..."}'
+    ].join('\n');
 
-      clearTimeout(stillSearching);
-      currentArticles = items;
-      renderArticles();
-      setAppStatus('ready');
-      profileSave();
-      break;
-    } catch(e) {
-      clearTimeout(stillSearching);
-      if (attempt === 0 && e.message && e.message.indexOf('Rate limit') === 0) {
-        for (var i = 60; i > 0; i--) {
-          document.querySelector('.load-txt').textContent = 'Rate limit hit — retrying in ' + i + 's…';
-          await new Promise(function(r) { setTimeout(r, 1000); });
+    var userMsg = userContext + '\nSources: ' + usedDomains.join(', ') + '\nSearch now. Return only the JSON object.';
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var stillSearching = setTimeout(function(label) {
+        return function() { setLoadingMsg('Still searching for ' + label + '…'); };
+      }(pickLabel), 60000);
+
+      try {
+        var data = await callAPI({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 800,
+          tools: [{ type: 'web_search_20260209', name: 'web_search' }],
+          system: sys,
+          messages: [{ role: 'user', content: userMsg }]
+        });
+        clearTimeout(stillSearching);
+
+        var result = extractJSON(data);
+        var item = (result.items && result.items[0]) || result.item;
+
+        if (item && item.domain) {
+          usedDomains.push(item.domain);
+          var disc = result.discoveredDomain;
+          if (disc && profile.sources.indexOf(disc) === -1) {
+            profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
+            profile.sources.push(disc);
+            usedDomains.push(disc);
+            document.getElementById('banner-text').textContent = 'New source added: ' + disc + (result.discoveredDomainReason ? ' — ' + result.discoveredDomainReason : '');
+            document.getElementById('domain-banner').style.display = 'flex';
+          }
+          currentArticles.push(item);
+          if (!gotAny) { gotAny = true; setAppStatus('ready'); }
+          appendArticleCard(item, currentArticles.length - 1);
         }
-        document.querySelector('.load-txt').textContent = 'Searching across articles, video and audio…';
-        continue;
+        break;
+      } catch(e) {
+        clearTimeout(stillSearching);
+        if (attempt === 0 && e.message && e.message.indexOf('Rate limit') === 0) {
+          for (var j = 60; j > 0; j--) {
+            setLoadingMsg('Rate limit — retrying ' + pickLabel + ' in ' + j + 's…');
+            await new Promise(function(r) { setTimeout(r, 1000); });
+          }
+          continue;
+        }
+        if (gotAny) { hideFetchingMore(); break; }
+        document.getElementById('error-msg').textContent = e.message;
+        setAppStatus('error');
+        return;
       }
-      document.getElementById('error-msg').textContent = e.message;
-      setAppStatus('error');
-      break;
     }
+  }
+
+  if (gotAny) {
+    hideFetchingMore();
+    profile.totalSearches = (profile.totalSearches||0) + 1;
+    profileSave();
+    setAppStatus('ready');
   }
 }
 
 // ---- Render articles ----
 function renderArticles() {
-  var container = document.getElementById('articles-container');
-  container.innerHTML = '';
-  currentArticles.forEach(function(art, idx) {
-    var div = document.createElement('div');
-    div.className = 'card';
-    div.id = 'card-' + idx;
-    var mtype = art.mediaType || 'article';
-    div.innerHTML =
-      '<div class="card-meta">' +
-        '<div class="card-meta-left">' +
-          '<span class="media-tag">' + mtype + '</span>' +
-          '<span class="card-cat">' + (art.category||'') + '</span>' +
-        '</div>' +
-        '<span class="card-dur">' + (art.estimatedDuration||'') + '</span>' +
-      '</div>' +
-      '<h2 class="card-title"><a href="' + art.url + '" target="_blank">' + art.title + '</a></h2>' +
-      '<p class="card-src">' + (art.source||'') + ' / ' + (art.domain||'') + '</p>' +
-      '<p class="card-sum">' + (art.summary||'') + '</p>' +
-      '<p class="card-why">' + (art.whyRecommended||'') + '</p>' +
-      '<div class="score-row" id="scores-' + idx + '">' + renderScoreBtns(idx) + '</div>' +
-      '<p class="scored-ok hidden" id="scored-' + idx + '"></p>';
-    container.appendChild(div);
-  });
-  updateFooterNote();
+  document.getElementById('articles-container').innerHTML = '';
+  currentArticles.forEach(function(art, idx) { appendArticleCard(art, idx); });
 }
 
 function renderScoreBtns(idx) {
