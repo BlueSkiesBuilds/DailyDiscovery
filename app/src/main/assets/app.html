@@ -149,6 +149,10 @@ main{max-width:820px;margin:0 auto;padding:1rem}
         <button class="add-btn" onclick="saveApiKey()">Save</button>
       </div>
     </div>
+    <div style="margin-bottom:1.25rem">
+      <p class="sett-h" style="margin-bottom:0.4rem">Articles per fetch</p>
+      <div style="display:flex;gap:0.3rem" id="count-btns"></div>
+    </div>
     <p class="sett-h" id="sources-heading">Sources</p>
     <div class="src-list" id="sources-list"></div>
     <div class="add-row">
@@ -210,7 +214,7 @@ var DEFAULT_PROFILE = {
   categories: ['Science & Technology','Arts & Culture','Current Affairs / News','Philosophy & Ideas','Computer Games'],
   sources: ['newscientist.com','theguardian.com','bbc.co.uk','economist.com','arstechnica.com','philosophynow.org','eurogamer.net','rockpapershotgun.com','natureindex.com','smithsonianmag.com','youtube.com','podcastindex.org'],
   scoreHistory: [], domainBoosts: {}, categoryBoosts: {}, mediaTypeBoosts: {},
-  totalSearches: 0, discoveredDomains: [], lastSyncedAt: null
+  totalSearches: 0, discoveredDomains: [], lastSyncedAt: null, articleCount: 3
 };
 
 // ---- State ----
@@ -280,8 +284,10 @@ function setAppStatus(status) {
 }
 
 function updateSplashCount() {
+  var n = profile.articleCount || 3;
+  var words = ['One','Two','Three','Four','Five'];
   document.getElementById('splash-sources-count').textContent =
-    'Five curated picks across ' + profile.sources.length + ' sources.';
+    (words[n - 1] || n) + ' curated pick' + (n === 1 ? '' : 's') + ' across ' + profile.sources.length + ' sources.';
 }
 
 // ---- Date ----
@@ -476,7 +482,7 @@ async function fetchArticles() {
     'Today: ' + new Date().toLocaleDateString('en-GB',{weekday:'long',year:'numeric',month:'long',day:'numeric'})
   ].filter(Boolean).join('\n');
 
-  var TARGET = 3;
+  var TARGET = profile.articleCount || 3;
   var usedDomains = (profile.sources||[]).slice();
   var gotAny = false;
 
@@ -498,7 +504,7 @@ async function fetchArticles() {
 
     var userMsg = userContext + '\nSources: ' + usedDomains.join(', ') + '\nSearch now. Return only the JSON object.';
 
-    for (var attempt = 0; attempt < 2; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       var stillSearching = setTimeout(function(label) {
         return function() { setLoadingMsg('Still searching for ' + label + '…'); };
       }(pickLabel), 60000);
@@ -533,7 +539,7 @@ async function fetchArticles() {
         break;
       } catch(e) {
         clearTimeout(stillSearching);
-        if (attempt === 0 && e.message && e.message.indexOf('Rate limit') === 0) {
+        if (e.message && e.message.indexOf('Rate limit') === 0) {
           for (var j = 60; j > 0; j--) {
             setLoadingMsg('Rate limit — retrying ' + pickLabel + ' in ' + j + 's…');
             await new Promise(function(r) { setTimeout(r, 1000); });
@@ -584,11 +590,12 @@ function handleScore(idx, optIdx) {
 }
 
 function updateFooterNote() {
+  var target = profile.articleCount || 3;
   var loaded = currentArticles.length;
   var scored = Object.keys(currentScores).length;
   var note   = document.getElementById('footer-note');
   var btn    = document.getElementById('save-ratings-btn');
-  var loadedStr = loaded < 3 ? loaded + ' of 3 loaded  ·  ' : '';
+  var loadedStr = loaded < target ? loaded + ' of ' + target + ' loaded  ·  ' : '';
   note.textContent = loadedStr + scored + '/' + loaded + ' rated' + (loaded > 0 && scored === loaded ? ' — ready to save!' : '');
   btn.disabled = scored === 0;
 }
@@ -614,6 +621,24 @@ function saveFeedback() {
 function renderSettings() {
   var key = apiKeyLoad();
   if (key) document.getElementById('api-key-inp').placeholder = 'sk-ant-... (saved)';
+  var countBtns = document.getElementById('count-btns');
+  countBtns.innerHTML = '';
+  [1, 2, 3, 4, 5].forEach(function(n) {
+    var btn = document.createElement('button');
+    btn.className = 'score-btn';
+    btn.textContent = n;
+    var active = (profile.articleCount || 3) === n;
+    btn.style.background = active ? '#1a1a1a' : '';
+    btn.style.color      = active ? '#fff'    : '';
+    btn.style.borderColor= active ? '#1a1a1a' : '';
+    btn.onclick = function() {
+      profile.articleCount = n;
+      profileSave();
+      renderSettings();
+      updateSplashCount();
+    };
+    countBtns.appendChild(btn);
+  });
   var heading = document.getElementById('sources-heading');
   heading.textContent = 'Sources (' + profile.sources.length + ')';
   var list = document.getElementById('sources-list');
