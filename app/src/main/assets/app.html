@@ -226,7 +226,7 @@ var DEFAULT_PROFILE = {
   sources: ['newscientist.com','theguardian.com','bbc.co.uk','economist.com','arstechnica.com','philosophynow.org','eurogamer.net','rockpapershotgun.com','natureindex.com','smithsonianmag.com','youtube.com','podcastindex.org'],
   scoreHistory: [], domainBoosts: {}, categoryBoosts: {}, mediaTypeBoosts: {},
   totalSearches: 0, discoveredDomains: [], lastSyncedAt: null,
-  articleCount: 3, discoverSources: true, varyCategories: true
+  articleCount: 3, discoverSources: true, varyCategories: true, seenUrls: []
 };
 
 // ---- State ----
@@ -484,9 +484,11 @@ async function fetchArticles() {
   var mediaBoosts = Object.entries(profile.mediaTypeBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var feedback = (profile.scoreHistory||[]).slice(-6).map(function(h){return '"'+h.title+'" ['+(h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
 
+  var recentUrls = (profile.seenUrls||[]).slice(-20);
   var userContext = [
     'Categories: ' + profile.categories.join(', '),
     'Already discovered (skip): ' + ((profile.discoveredDomains||[]).join(', ')||'none'),
+    recentUrls.length ? 'Do NOT return any of these recently seen URLs:\n' + recentUrls.join('\n') : '',
     boosts      ? 'Domain scores: '   + boosts      : '',
     catBoosts   ? 'Category scores: ' + catBoosts   : '',
     mediaBoosts ? 'Media scores: '    + mediaBoosts : '',
@@ -525,6 +527,7 @@ async function fetchArticles() {
 
     var userMsg = userContext + '\nSources: ' + usedDomains.join(', ') + '\nSearch now. Return only the JSON object.';
 
+    var pickSucceeded = false;
     for (var attempt = 0; attempt < 5; attempt++) {
       var stillSearching = setTimeout(function(label) {
         return function() { setLoadingMsg('Still searching for ' + label + '…'); };
@@ -546,6 +549,9 @@ async function fetchArticles() {
         if (item && item.domain) {
           usedDomains.push(item.domain);
           if (item.category) usedCategories.push(item.category);
+          if (item.url) {
+            profile.seenUrls = Array.from(new Set((profile.seenUrls||[]).concat([item.url]))).slice(-30);
+          }
           var disc = (i === 0 && profile.discoverSources !== false) ? result.discoveredDomain : null;
           if (disc && profile.sources.indexOf(disc) === -1) {
             profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
@@ -557,6 +563,7 @@ async function fetchArticles() {
           currentArticles.push(item);
           if (!gotAny) { gotAny = true; setAppStatus('ready'); }
           appendArticleCard(item, currentArticles.length - 1);
+          pickSucceeded = true;
         }
         break;
       } catch(e) {
@@ -568,12 +575,15 @@ async function fetchArticles() {
           }
           continue;
         }
-        if (gotAny) { hideFetchingMore(); break; }
-        document.getElementById('error-msg').textContent = e.message;
-        setAppStatus('error');
-        return;
+        if (!gotAny) {
+          document.getElementById('error-msg').textContent = e.message;
+          setAppStatus('error');
+          return;
+        }
+        break;
       }
     }
+    if (!pickSucceeded && gotAny) hideFetchingMore();
   }
 
   if (gotAny) {

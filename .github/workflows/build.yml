@@ -32,6 +32,13 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Set build version
+        run: |
+          BUILD=${{ github.run_number }}
+          sed -i "s/versionCode [0-9]*/versionCode $BUILD/" app/build.gradle
+          sed -i "s/versionName \"[^\"]*\"/versionName \"1.$BUILD\"/" app/build.gradle
+          sed -i "s/Version [0-9][0-9.]*/Version 1.$BUILD/" app/src/main/assets/app.html
+
       - name: Build debug APK
         run: ./gradlew assembleDebug
         env:
