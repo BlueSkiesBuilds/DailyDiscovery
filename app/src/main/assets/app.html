@@ -350,6 +350,7 @@ async function callAPI(bodyObj) {
     return JSON.parse(raw);
   } catch(e) {
     if (e.name === 'AbortError') throw new Error('Request timed out after 3 minutes — try again.');
+    if (e.message === 'Failed to fetch') throw new Error('Connection lost — keep the app open and screen on while searching, then try again.');
     if (e.message && e.message.indexOf('API ') === 0) throw e;
     throw new Error('Fetch error: ' + e.message + ' | ' + raw.slice(0,120));
   } finally {

@@ -19,12 +19,13 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Full screen, no title bar
+        // Full screen, no title bar; keep screen on during long fetches
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setFlags(
             WindowManager.LayoutParams.FLAG_FULLSCREEN,
             WindowManager.LayoutParams.FLAG_FULLSCREEN
         );
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         webView = new WebView(this);
         setContentView(webView);
