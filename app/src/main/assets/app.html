@@ -153,6 +153,16 @@ main{max-width:820px;margin:0 auto;padding:1rem}
       <p class="sett-h" style="margin-bottom:0.4rem">Articles per fetch</p>
       <div style="display:flex;gap:0.3rem" id="count-btns"></div>
     </div>
+    <div style="margin-bottom:1.25rem">
+      <p class="sett-h" style="margin-bottom:0.2rem">Discover new sources</p>
+      <p class="api-key-note" style="margin-bottom:0.4rem">Adds one new domain to your sources on each fetch.</p>
+      <div style="display:flex;gap:0.3rem" id="discover-toggle"></div>
+    </div>
+    <div style="margin-bottom:1.25rem">
+      <p class="sett-h" style="margin-bottom:0.2rem">Vary categories</p>
+      <p class="api-key-note" style="margin-bottom:0.4rem">Each pick comes from a different category.</p>
+      <div style="display:flex;gap:0.3rem" id="vary-toggle"></div>
+    </div>
     <p class="sett-h" id="sources-heading">Sources</p>
     <div class="src-list" id="sources-list"></div>
     <div class="add-row">
@@ -215,7 +225,8 @@ var DEFAULT_PROFILE = {
   categories: ['Science & Technology','Arts & Culture','Current Affairs / News','Philosophy & Ideas','Computer Games'],
   sources: ['newscientist.com','theguardian.com','bbc.co.uk','economist.com','arstechnica.com','philosophynow.org','eurogamer.net','rockpapershotgun.com','natureindex.com','smithsonianmag.com','youtube.com','podcastindex.org'],
   scoreHistory: [], domainBoosts: {}, categoryBoosts: {}, mediaTypeBoosts: {},
-  totalSearches: 0, discoveredDomains: [], lastSyncedAt: null, articleCount: 3
+  totalSearches: 0, discoveredDomains: [], lastSyncedAt: null,
+  articleCount: 3, discoverSources: true, varyCategories: true
 };
 
 // ---- State ----
@@ -486,12 +497,19 @@ async function fetchArticles() {
 
   var TARGET = profile.articleCount || 3;
   var usedDomains = (profile.sources||[]).slice();
+  var usedCategories = [];
   var gotAny = false;
 
   for (var i = 0; i < TARGET; i++) {
     var pickLabel = 'pick ' + (i + 1) + ' of ' + TARGET;
     setLoadingMsg('Searching for ' + pickLabel + '…');
 
+    var discoverRule = (i === 0 && profile.discoverSources !== false)
+      ? '- Optionally identify ONE new quality domain not currently in the source pool.'
+      : '- Set discoveredDomain to null.';
+    var varyRule = (profile.varyCategories !== false && usedCategories.length > 0)
+      ? '- This pick MUST be from a different category to: ' + usedCategories.join(', ') + '.'
+      : '';
     var sys = [
       'You are a personalised discovery engine. Find exactly 1 real current high-quality piece of content.',
       'RULES:',
@@ -499,10 +517,11 @@ async function fetchArticles() {
       '- ANY medium: articles, YouTube videos, podcasts, audio docs, radio, essays.',
       '- Prefer last 14 days. Never older than 60 days.',
       '- Do NOT use any of these domains: ' + usedDomains.join(', '),
-      '- Optionally identify ONE new quality domain not currently in the source pool.',
+      varyRule,
+      discoverRule,
       'Return ONLY valid JSON:',
       '{"items":[{"title":"...","source":"...","domain":"...","url":"...","summary":"...","category":"...","mediaType":"article or video or podcast or audio","estimatedDuration":"...","whyRecommended":"..."}],"discoveredDomain":"...or null","discoveredDomainReason":"..."}'
-    ].join('\n');
+    ].filter(Boolean).join('\n');
 
     var userMsg = userContext + '\nSources: ' + usedDomains.join(', ') + '\nSearch now. Return only the JSON object.';
 
@@ -526,7 +545,8 @@ async function fetchArticles() {
 
         if (item && item.domain) {
           usedDomains.push(item.domain);
-          var disc = result.discoveredDomain;
+          if (item.category) usedCategories.push(item.category);
+          var disc = (i === 0 && profile.discoverSources !== false) ? result.discoveredDomain : null;
           if (disc && profile.sources.indexOf(disc) === -1) {
             profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
             profile.sources.push(disc);
@@ -620,6 +640,22 @@ function saveFeedback() {
 }
 
 // ---- Settings ----
+function renderToggle(containerId, value, onChange) {
+  var container = document.getElementById(containerId);
+  container.innerHTML = '';
+  ['Enabled', 'Disabled'].forEach(function(label, idx) {
+    var btn = document.createElement('button');
+    btn.className = 'score-btn';
+    btn.textContent = label;
+    var active = idx === 0 ? value : !value;
+    btn.style.background  = active ? '#1a1a1a' : '';
+    btn.style.color       = active ? '#fff'    : '';
+    btn.style.borderColor = active ? '#1a1a1a' : '';
+    btn.onclick = function() { onChange(idx === 0); };
+    container.appendChild(btn);
+  });
+}
+
 function renderSettings() {
   var key = apiKeyLoad();
   if (key) document.getElementById('api-key-inp').placeholder = 'sk-ant-... (saved)';
@@ -640,6 +676,12 @@ function renderSettings() {
       updateSplashCount();
     };
     countBtns.appendChild(btn);
+  });
+  renderToggle('discover-toggle', profile.discoverSources !== false, function(val) {
+    profile.discoverSources = val; profileSave(); renderSettings();
+  });
+  renderToggle('vary-toggle', profile.varyCategories !== false, function(val) {
+    profile.varyCategories = val; profileSave(); renderSettings();
   });
   var heading = document.getElementById('sources-heading');
   heading.textContent = 'Sources (' + profile.sources.length + ')';
