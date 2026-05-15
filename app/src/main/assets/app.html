@@ -470,7 +470,51 @@ function setLoadingMsg(msg) {
   }
 }
 
-// ---- Fetch articles (one at a time) ----
+// ---- Fetch one pick (used in parallel) ----
+async function fetchOnePick(idx, categoryHint, excludeDomains, userContext, onStatus) {
+  var discoverRule = (idx === 0 && profile.discoverSources !== false)
+    ? '- Optionally identify ONE new quality domain not currently in the source pool.'
+    : '- Set discoveredDomain to null.';
+  var varyRule = categoryHint
+    ? '- This pick MUST be from the category: ' + categoryHint + '.'
+    : '';
+  var sys = [
+    'You are a personalised discovery engine. Find exactly 1 real current high-quality piece of content.',
+    'RULES:',
+    '- Make exactly ONE web search, then return the best result found.',
+    '- REAL URLs only. Never invent content.',
+    '- ANY medium: articles, YouTube videos, podcasts, audio docs, radio, essays.',
+    '- Prefer last 14 days. Never older than 60 days.',
+    '- Do NOT use any of these domains: ' + excludeDomains.join(', '),
+    varyRule,
+    discoverRule,
+    'Return ONLY valid JSON:',
+    '{"items":[{"title":"...","source":"...","domain":"...","url":"...","summary":"...","category":"...","mediaType":"article or video or podcast or audio","estimatedDuration":"...","whyRecommended":"..."}],"discoveredDomain":"...or null","discoveredDomainReason":"..."}'
+  ].filter(Boolean).join('\n');
+  var userMsg = userContext + '\nSources: ' + excludeDomains.join(', ') + '\nSearch now. Return only the JSON object.';
+
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      var data = await callAPI({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 800,
+        tools: [{ type: 'web_search_20260209', name: 'web_search' }],
+        system: sys,
+        messages: [{ role: 'user', content: userMsg }]
+      });
+      return extractJSON(data);
+    } catch(e) {
+      if (e.message && e.message.indexOf('Rate limit') === 0 && attempt < 2) {
+        if (onStatus) onStatus('Rate limit on pick ' + (idx + 1) + ' — retrying shortly…');
+        await new Promise(function(r) { setTimeout(r, 60000 + Math.random() * 10000); });
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
+// ---- Fetch articles (parallel) ----
 async function fetchArticles() {
   setAppStatus('loading');
   currentArticles = []; currentScores = {}; feedbackSaved = false;
@@ -483,7 +527,6 @@ async function fetchArticles() {
   var catBoosts = Object.entries(profile.categoryBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var mediaBoosts = Object.entries(profile.mediaTypeBoosts||{}).filter(function(p){return Math.abs(p[1])>0;}).map(function(p){return p[0]+': '+(p[1]>0?'+':'')+p[1];}).join(', ');
   var feedback = (profile.scoreHistory||[]).slice(-6).map(function(h){return '"'+h.title+'" ['+(h.mediaType||'article')+'] ('+h.domain+') score:'+h.value+(h.tag?' ['+h.tag+']':'');}).join('\n');
-
   var recentUrls = (profile.seenUrls||[]).slice(-20);
   var userContext = [
     'Categories: ' + profile.categories.join(', '),
@@ -498,99 +541,65 @@ async function fetchArticles() {
   ].filter(Boolean).join('\n');
 
   var TARGET = profile.articleCount || 3;
-  var usedDomains = (profile.sources||[]).slice();
-  var usedCategories = [];
+  var excludeDomains = (profile.sources||[]).slice();
+
+  // Pre-assign categories for variety (avoids sequential dependency)
+  var assignedCats = [];
+  if (profile.varyCategories !== false) {
+    var catPool = (profile.categories||[]).slice();
+    for (var k = 0; k < TARGET && catPool.length > 0; k++) {
+      var ri = Math.floor(Math.random() * catPool.length);
+      assignedCats.push(catPool.splice(ri, 1)[0]);
+    }
+  }
+
+  setLoadingMsg('Searching for ' + TARGET + ' pick' + (TARGET !== 1 ? 's' : '') + ' in parallel…');
+
   var gotAny = false;
+  var discoveryDone = false;
+  var firstError = null;
+  var pickPromises = [];
 
   for (var i = 0; i < TARGET; i++) {
-    var pickLabel = 'pick ' + (i + 1) + ' of ' + TARGET;
-    setLoadingMsg('Searching for ' + pickLabel + '…');
-
-    var discoverRule = (i === 0 && profile.discoverSources !== false)
-      ? '- Optionally identify ONE new quality domain not currently in the source pool.'
-      : '- Set discoveredDomain to null.';
-    var varyRule = (profile.varyCategories !== false && usedCategories.length > 0)
-      ? '- This pick MUST be from a different category to: ' + usedCategories.join(', ') + '.'
-      : '';
-    var sys = [
-      'You are a personalised discovery engine. Find exactly 1 real current high-quality piece of content.',
-      'RULES:',
-      '- Use web search. REAL URLs only. Never invent content.',
-      '- ANY medium: articles, YouTube videos, podcasts, audio docs, radio, essays.',
-      '- Prefer last 14 days. Never older than 60 days.',
-      '- Do NOT use any of these domains: ' + usedDomains.join(', '),
-      varyRule,
-      discoverRule,
-      'Return ONLY valid JSON:',
-      '{"items":[{"title":"...","source":"...","domain":"...","url":"...","summary":"...","category":"...","mediaType":"article or video or podcast or audio","estimatedDuration":"...","whyRecommended":"..."}],"discoveredDomain":"...or null","discoveredDomainReason":"..."}'
-    ].filter(Boolean).join('\n');
-
-    var userMsg = userContext + '\nSources: ' + usedDomains.join(', ') + '\nSearch now. Return only the JSON object.';
-
-    var pickSucceeded = false;
-    for (var attempt = 0; attempt < 5; attempt++) {
-      var stillSearching = setTimeout(function(label) {
-        return function() { setLoadingMsg('Still searching for ' + label + '…'); };
-      }(pickLabel), 60000);
-
-      try {
-        var data = await callAPI({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 800,
-          tools: [{ type: 'web_search_20260209', name: 'web_search' }],
-          system: sys,
-          messages: [{ role: 'user', content: userMsg }]
-        });
-        clearTimeout(stillSearching);
-
-        var result = extractJSON(data);
+    if (i > 0) await new Promise(function(r) { setTimeout(r, 3000); });
+    pickPromises.push((function(idx) {
+      return fetchOnePick(idx, assignedCats[idx] || null, excludeDomains, userContext, function(msg) {
+        if (!gotAny) setLoadingMsg(msg);
+      })
+      .then(function(result) {
         var item = (result.items && result.items[0]) || result.item;
-
-        if (item && item.domain) {
-          usedDomains.push(item.domain);
-          if (item.category) usedCategories.push(item.category);
-          if (item.url) {
-            profile.seenUrls = Array.from(new Set((profile.seenUrls||[]).concat([item.url]))).slice(-30);
-          }
-          var disc = (i === 0 && profile.discoverSources !== false) ? result.discoveredDomain : null;
+        if (!item || !item.domain) return;
+        if (item.url) {
+          profile.seenUrls = Array.from(new Set((profile.seenUrls||[]).concat([item.url]))).slice(-30);
+        }
+        if (!discoveryDone && idx === 0 && profile.discoverSources !== false) {
+          discoveryDone = true;
+          var disc = result.discoveredDomain;
           if (disc && profile.sources.indexOf(disc) === -1) {
             profile.discoveredDomains = Array.from(new Set((profile.discoveredDomains||[]).concat([disc])));
             profile.sources.push(disc);
-            usedDomains.push(disc);
             document.getElementById('banner-text').textContent = 'New source added: ' + disc + (result.discoveredDomainReason ? ' — ' + result.discoveredDomainReason : '');
             document.getElementById('domain-banner').style.display = 'flex';
           }
-          currentArticles.push(item);
-          if (!gotAny) { gotAny = true; setAppStatus('ready'); }
-          appendArticleCard(item, currentArticles.length - 1);
-          pickSucceeded = true;
         }
-        break;
-      } catch(e) {
-        clearTimeout(stillSearching);
-        if (e.message && e.message.indexOf('Rate limit') === 0) {
-          for (var j = 60; j > 0; j--) {
-            setLoadingMsg('Rate limit — retrying ' + pickLabel + ' in ' + j + 's…');
-            await new Promise(function(r) { setTimeout(r, 1000); });
-          }
-          continue;
-        }
-        if (!gotAny) {
-          document.getElementById('error-msg').textContent = e.message;
-          setAppStatus('error');
-          return;
-        }
-        break;
-      }
-    }
-    if (!pickSucceeded && gotAny) hideFetchingMore();
+        currentArticles.push(item);
+        if (!gotAny) { gotAny = true; setAppStatus('ready'); }
+        appendArticleCard(item, currentArticles.length - 1);
+      })
+      .catch(function(e) { if (!firstError) firstError = e; });
+    })(i));
   }
+
+  await Promise.allSettled(pickPromises);
 
   if (gotAny) {
     hideFetchingMore();
     profile.totalSearches = (profile.totalSearches||0) + 1;
     profileSave();
     setAppStatus('ready');
+  } else {
+    document.getElementById('error-msg').textContent = firstError ? firstError.message : 'No results returned — try again.';
+    setAppStatus('error');
   }
 }
 
