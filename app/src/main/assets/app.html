@@ -471,27 +471,34 @@ function setLoadingMsg(msg) {
 }
 
 // ---- Fetch one pick (used in parallel) ----
-async function fetchOnePick(idx, categoryHint, excludeDomains, userContext, onStatus) {
+async function fetchOnePick(idx, categoryHint, mediaHint, sources, userContext, onStatus) {
   var discoverRule = (idx === 0 && profile.discoverSources !== false)
     ? '- Optionally identify ONE new quality domain not currently in the source pool.'
     : '- Set discoveredDomain to null.';
   var varyRule = categoryHint
     ? '- This pick MUST be from the category: ' + categoryHint + '.'
     : '';
+  var mediumLine = mediaHint === 'video'
+    ? '- This pick MUST be a video (YouTube, TED, Vimeo, documentary, etc.).'
+    : mediaHint === 'podcast'
+    ? '- This pick MUST be a podcast episode or audio content (any podcast platform, BBC Sounds, radio programme, etc.).'
+    : '- ANY medium: articles, YouTube videos, podcasts, audio docs, radio, essays.';
   var sys = [
     'You are a personalised discovery engine. Find exactly 1 real current high-quality piece of content.',
     'RULES:',
     '- Make exactly ONE web search, then return the best result found.',
     '- REAL URLs only. Never invent content.',
-    '- ANY medium: articles, YouTube videos, podcasts, audio docs, radio, essays.',
+    mediumLine,
     '- Prefer last 14 days. Never older than 60 days.',
-    '- Do NOT use any of these domains: ' + excludeDomains.join(', '),
+    '- Prefer content from these trusted sources when relevant: ' + sources.join(', '),
+    '- Do not return any URL already listed as recently seen.',
+    '- Vary domains — do not return the same source twice in one fetch.',
     varyRule,
     discoverRule,
     'Return ONLY valid JSON:',
     '{"items":[{"title":"...","source":"...","domain":"...","url":"...","summary":"...","category":"...","mediaType":"article or video or podcast or audio","estimatedDuration":"...","whyRecommended":"..."}],"discoveredDomain":"...or null","discoveredDomainReason":"..."}'
   ].filter(Boolean).join('\n');
-  var userMsg = userContext + '\nSources: ' + excludeDomains.join(', ') + '\nSearch now. Return only the JSON object.';
+  var userMsg = userContext + '\nSearch now. Return only the JSON object.';
 
   for (var attempt = 0; attempt < 3; attempt++) {
     try {
@@ -530,7 +537,6 @@ async function fetchArticles() {
   var recentUrls = (profile.seenUrls||[]).slice(-20);
   var userContext = [
     'Categories: ' + profile.categories.join(', '),
-    'Already discovered (skip): ' + ((profile.discoveredDomains||[]).join(', ')||'none'),
     recentUrls.length ? 'Do NOT return any of these recently seen URLs:\n' + recentUrls.join('\n') : '',
     boosts      ? 'Domain scores: '   + boosts      : '',
     catBoosts   ? 'Category scores: ' + catBoosts   : '',
@@ -541,7 +547,7 @@ async function fetchArticles() {
   ].filter(Boolean).join('\n');
 
   var TARGET = profile.articleCount || 3;
-  var excludeDomains = (profile.sources||[]).slice();
+  var sources = (profile.sources||[]).slice();
 
   // Pre-assign categories for variety (avoids sequential dependency)
   var assignedCats = [];
@@ -551,6 +557,13 @@ async function fetchArticles() {
       var ri = Math.floor(Math.random() * catPool.length);
       assignedCats.push(catPool.splice(ri, 1)[0]);
     }
+  }
+
+  // Pre-assign media types — biased 4:1 toward 'any' so video/podcast appear but don't dominate
+  var mediaPool = ['any', 'any', 'video', 'podcast', 'any', 'any'];
+  var assignedMedia = [];
+  for (var m = 0; m < TARGET; m++) {
+    assignedMedia.push(mediaPool[Math.floor(Math.random() * mediaPool.length)]);
   }
 
   setLoadingMsg('Searching for ' + TARGET + ' pick' + (TARGET !== 1 ? 's' : '') + ' in parallel…');
@@ -563,7 +576,7 @@ async function fetchArticles() {
   for (var i = 0; i < TARGET; i++) {
     if (i > 0) await new Promise(function(r) { setTimeout(r, 3000); });
     pickPromises.push((function(idx) {
-      return fetchOnePick(idx, assignedCats[idx] || null, excludeDomains, userContext, function(msg) {
+      return fetchOnePick(idx, assignedCats[idx] || null, assignedMedia[idx] || 'any', sources, userContext, function(msg) {
         if (!gotAny) setLoadingMsg(msg);
       })
       .then(function(result) {
